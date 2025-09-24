@@ -59,7 +59,7 @@ class WaveManager {
     }
     
     func startNextWave() {
-        guard let gameState = gameState, !waveInProgress else { return }
+        guard let gameState = gameState, !waveInProgress, gameState.gameState == .playing else { return }
         
         waveInProgress = true
         gameState.currentWave += 1
@@ -167,7 +167,7 @@ class WaveManager {
     }
     
     var canStartNextWave: Bool {
-        return !waveInProgress && gameState?.enemies.isEmpty == true
+        return !waveInProgress && gameState?.enemies.isEmpty == true && gameState?.gameState == .playing
     }
     
     func stopCurrentWave() {

@@ -11,6 +11,7 @@ struct GameView: View {
     @StateObject private var gameState = GameState()
     @State private var selectedTowerType: TowerType? = nil
     @State private var showGameOver = false
+    @Environment(\.scenePhase) private var scenePhase
     
     let rows = 12
     let cols = 10
@@ -19,27 +20,42 @@ struct GameView: View {
     var body: some View {
         GeometryReader { geometry in
             VStack(spacing: 0) {
-                // HUD
-                gameHUD
+                // Header with game info and play/pause button
+                headerView
                 
                 // Game Board
                 gameBoard
-                    .frame(width: CGFloat(cols) * cellSize, height: CGFloat(rows) * cellSize)
-                    .background(Color.green.opacity(0.1))
-                    .cornerRadius(8)
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 8)
-                            .stroke(Color.black.opacity(0.3), lineWidth: 2)
+                    .frame(width: 393, height: 506.93481)
+                    .background(
+                        Rectangle()
+                            .foregroundColor(.clear)
+                            .frame(width: 393, height: 506.93481)
+                            .background(Color(red: 0.65, green: 0.65, blue: 0.65))
+                            .overlay(
+                                Rectangle()
+                                    .frame(width: 393, height: 506.93481)
+                                    .background(Color(red: 0.2, green: 0.27, blue: 0.35))
+                            )
+                            .overlay(GridPattern())
                     )
+                    .onTapGesture {
+                        selectedTowerType = nil // Deselect tower when tapping elsewhere
+                        gameState.selectedTower = nil
+                    }
                 
                 Spacer()
                 
-                // Tower Selection Bar
+                // Tower upgrade options (when tower selected)
+                if gameState.selectedTower != nil {
+                    towerUpgradeView
+                }
+                
+                // Tower Selection Bar at bottom
                 towerSelectionBar
             }
-            .padding()
+            .background(Color(red: 0.92, green: 0.9, blue: 0.84)) // #ebe6d6
             .onAppear {
-                gameState.startGameLoop()
+                // Don't auto-start game
             }
             .onDisappear {
                 gameState.stopGameLoop()
@@ -47,7 +63,6 @@ struct GameView: View {
             .alert("Game Over", isPresented: $showGameOver) {
                 Button("Restart") {
                     gameState.resetGame()
-                    gameState.startGameLoop()
                 }
                 Button("Cancel", role: .cancel) { }
             } message: {
@@ -59,64 +74,108 @@ struct GameView: View {
                     gameState.stopGameLoop()
                 }
             }
+            .onChange(of: scenePhase) { _, newPhase in
+                switch newPhase {
+                case .background:
+                    gameState.handleAppDidEnterBackground()
+                case .active:
+                    if gameState.showPauseOverlay {
+                        // Don't auto-resume, let user choose
+                    }
+                default:
+                    break
+                }
+            }
+            .overlay(
+                // Pause overlay
+                Group {
+                    if gameState.showPauseOverlay {
+                        pauseOverlay
+                    }
+                }
+            )
         }
     }
     
-    private var gameHUD: some View {
-        HStack {
-            // Health
-            HStack(spacing: 4) {
-                Image(systemName: "heart.fill")
-                    .foregroundColor(.red)
-                Text("\(gameState.health)")
-                    .font(.headline)
+    private var headerView: some View {
+        VStack(spacing: 0) {
+            HStack {
+                // Wave information
+                Text("Wave \(max(1, gameState.currentWave))")
+                    .font(.title2)
                     .fontWeight(.bold)
-            }
-            
-            Spacer()
-            
-            // Coins
-            HStack(spacing: 4) {
-                Image(systemName: "dollarsign.circle.fill")
-                    .foregroundColor(.yellow)
-                Text("\(gameState.coins)")
-                    .font(.headline)
-                    .fontWeight(.bold)
-            }
-            
-            Spacer()
-            
-            // Wave info
-            VStack(spacing: 2) {
-                Text("Wave \(gameState.currentWave)")
-                    .font(.headline)
-                    .fontWeight(.bold)
-                Text("Score: \(gameState.score)")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-            }
-            
-            Spacer()
-            
-            // Start Wave Button
-            Button(action: {
-                if gameState.waveManager.canStartNextWave {
-                    gameState.waveManager.startNextWave()
+                    .foregroundColor(Color(red: 0.2, green: 0.27, blue: 0.35)) // #334559
+                
+                Spacer()
+                
+                // Play/Pause button or Start Wave button
+                if gameState.gameState == .playing && gameState.waveManager.canStartNextWave {
+                    Button(action: {
+                        gameState.waveManager.startNextWave()
+                    }) {
+                        HStack(spacing: 4) {
+                            Image(systemName: "play.fill")
+                                .font(.title2)
+                            Text("Wave")
+                                .font(.title3)
+                        }
+                        .foregroundColor(.green)
+                    }
+                } else {
+                    Button(action: {
+                        if gameState.gameState == .notStarted {
+                            gameState.startGameLoop()
+                            gameState.waveManager.startNextWave()
+                        } else if gameState.gameState == .playing {
+                            gameState.pauseGame()
+                        } else if gameState.gameState == .paused {
+                            gameState.resumeGame()
+                        }
+                    }) {
+                        RoundedRectangle(cornerRadius: 8)
+                            .fill(Color(red: 0.92, green: 0.9, blue: 0.84)) // #ebe6d6
+                            .frame(width: 60, height: 60)
+                            .overlay(
+                                Image(systemName: gameState.gameState == .playing ? "pause.fill" : "play.fill")
+                                    .font(.title2)
+                                    .foregroundColor(Color(red: 0.2, green: 0.27, blue: 0.35)) // #334559
+                            )
+                    }
                 }
-            }) {
-                Text(gameState.waveManager.canStartNextWave ? "Start Wave" : "Wave Active")
-                    .font(.caption)
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 6)
-                    .background(gameState.waveManager.canStartNextWave ? Color.green : Color.gray)
-                    .foregroundColor(.white)
-                    .cornerRadius(6)
             }
-            .disabled(!gameState.waveManager.canStartNextWave)
+            .padding(.horizontal)
+            .padding(.vertical, 8)
+            
+            // Second row with score, currency, and escaped
+            HStack {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Score")
+                        .font(.caption)
+                        .fontWeight(.bold)
+                        .foregroundColor(Color(red: 0.2, green: 0.27, blue: 0.35)) // #334559
+                    
+                    HStack(spacing: 4) {
+                        Image(systemName: "dollarsign.circle.fill")
+                            .foregroundColor(.black)
+                            .font(.system(size: 16))
+                        Text("\(gameState.coins)")
+                            .font(.body)
+                            .fontWeight(.medium)
+                            .foregroundColor(.black)
+                    }
+                }
+                
+                Spacer()
+                
+                Text("Escaped \(gameState.enemiesEscaped)")
+                    .font(.caption)
+                    .fontWeight(.semibold)
+                    .foregroundColor(.red)
+            }
+            .padding(.horizontal)
+            .padding(.bottom, 8)
         }
-        .padding()
-        .background(Color.black.opacity(0.05))
-        .cornerRadius(8)
+        .background(Color(red: 0.92, green: 0.9, blue: 0.84)) // #ebe6d6
     }
     
     private var gameBoard: some View {
@@ -140,6 +199,7 @@ struct GameView: View {
                         isPath: isPath,
                         isOccupied: isOccupied,
                         isSelected: selectedTowerType != nil && !isPath && !isOccupied,
+                        isPlaceable: selectedTowerType != nil && !isPath && !isOccupied,
                         cellSize: cellSize
                     )
                     .onTapGesture {
@@ -157,6 +217,9 @@ struct GameView: View {
             ForEach(gameState.towers) { tower in
                 TowerView(tower: tower)
                     .environmentObject(gameState)
+                    .onTapGesture {
+                        gameState.selectedTower = tower
+                    }
             }
             
             // Enemies
@@ -177,20 +240,112 @@ struct GameView: View {
     }
     
     private var towerSelectionBar: some View {
-        HStack(spacing: 12) {
-            ForEach(TowerType.allCases, id: \.self) { towerType in
-                TowerSelectionButton(
-                    towerType: towerType,
-                    isSelected: selectedTowerType == towerType,
-                    canAfford: gameState.coins >= towerType.cost
-                ) {
-                    selectedTowerType = selectedTowerType == towerType ? nil : towerType
+        VStack(spacing: 12) {
+            // Tower icons row
+            HStack(spacing: 20) {
+                ForEach(TowerType.allCases, id: \.self) { towerType in
+                    Button(action: {
+                        selectedTowerType = selectedTowerType == towerType ? nil : towerType
+                    }) {
+                        RoundedRectangle(cornerRadius: 8)
+                            .fill(Color(red: 0.2, green: 0.27, blue: 0.35)) // #334559
+                            .frame(width: 34.95898, height: 34.95898)
+                            .overlay(
+                                Image(systemName: towerIcon(for: towerType))
+                                    .font(.system(size: 24))
+                                    .foregroundColor(Color(red: 0.92, green: 0.9, blue: 0.84)) // #ebe6d6
+                            )
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 8)
+                                    .stroke(selectedTowerType == towerType ? Color.blue : Color.clear, lineWidth: 2)
+                            )
+                            .shadow(color: .black.opacity(0.25), radius: 2, x: 0, y: 4)
+                    }
+                    .disabled(gameState.coins < towerType.cost)
+                    .opacity(gameState.coins >= towerType.cost ? 1.0 : 0.5)
+                }
+            }
+            
+            // Price row
+            HStack(spacing: 20) {
+                ForEach(TowerType.allCases, id: \.self) { towerType in
+                    HStack(spacing: 4) {
+                        Image(systemName: "dollarsign.circle.fill")
+                            .foregroundColor(Color(red: 0.2, green: 0.27, blue: 0.35)) // #334559
+                            .font(.system(size: 16))
+                        Text("\(towerType.cost)")
+                            .font(.body)
+                            .fontWeight(.medium)
+                            .foregroundColor(Color(red: 0.2, green: 0.27, blue: 0.35)) // #334559
+                    }
+                    .frame(width: 34.95898)
                 }
             }
         }
         .padding()
-        .background(Color.black.opacity(0.05))
-        .cornerRadius(8)
+        .background(Color(red: 0.92, green: 0.9, blue: 0.84)) // #ebe6d6
+    }
+    
+    private var towerUpgradeView: some View {
+        guard let selectedTower = gameState.selectedTower else { return AnyView(EmptyView()) }
+        
+        return AnyView(
+            VStack(spacing: 8) {
+                // Upgrade options row
+                HStack(spacing: 20) {
+                    ForEach(UpgradeType.allCases, id: \.self) { upgradeType in
+                        if selectedTower.canUpgrade(upgradeType) {
+                            Button(action: {
+                                let cost = selectedTower.getUpgradeCost(upgrade: upgradeType)
+                                if gameState.coins >= cost {
+                                    selectedTower.applyUpgrade(upgradeType)
+                                    gameState.coins -= cost
+                                }
+                            }) {
+                                VStack(spacing: 4) {
+                                    Circle()
+                                        .fill(gameState.coins >= selectedTower.getUpgradeCost(upgrade: upgradeType) ? Color.blue : Color.gray.opacity(0.6))
+                                        .frame(width: 30, height: 30)
+                                        .overlay(
+                                            Text(upgradeIcon(for: upgradeType))
+                                                .font(.caption)
+                                                .foregroundColor(.white)
+                                        )
+                                    Text(upgradeType.displayName)
+                                        .font(.caption2)
+                                        .foregroundColor(.black)
+                                        .fontWeight(.medium)
+                                }
+                            }
+                            .disabled(gameState.coins < selectedTower.getUpgradeCost(upgrade: upgradeType))
+                        }
+                    }
+                    
+                    Spacer()
+                }
+                .padding(.horizontal)
+            }
+            .padding(.vertical, 8)
+            .background(Color(red: 0.92, green: 0.9, blue: 0.84)) // #ebe6d6
+        )
+    }
+    
+    private func upgradeIcon(for upgradeType: UpgradeType) -> String {
+        switch upgradeType {
+        case .pierce: return "🔫"
+        case .range: return "🎯"
+        case .fastFire: return "⚡"
+        }
+    }
+    
+    private func towerIcon(for towerType: TowerType) -> String {
+        switch towerType {
+        case .peace: return "peacesign"
+        case .tree: return "tree"
+        case .wave: return "swirl.circle.righthalf.filled"
+        case .sun: return "sun.max"
+        case .moon: return "moon.haze"
+        }
     }
     
     private func placeTower(type: TowerType, at cell: (Int, Int)) {
@@ -207,6 +362,46 @@ struct GameView: View {
         gameState.coins -= type.cost
         selectedTowerType = nil // Deselect after placing
     }
+    
+    
+    private var pauseOverlay: some View {
+        Color.black.opacity(0.7)
+            .ignoresSafeArea()
+            .overlay(
+                VStack(spacing: 20) {
+                    Text("Game Paused")
+                        .font(.title)
+                        .fontWeight(.bold)
+                        .foregroundColor(.white)
+                    
+                    VStack(spacing: 12) {
+                        Button(action: {
+                            gameState.resumeGame()
+                        }) {
+                            Text("Continue")
+                                .font(.headline)
+                                .padding(.horizontal, 32)
+                                .padding(.vertical, 12)
+                                .background(Color.green)
+                                .foregroundColor(.white)
+                                .cornerRadius(8)
+                        }
+                        
+                        Button(action: {
+                            gameState.resetGame()
+                        }) {
+                            Text("Restart")
+                                .font(.headline)
+                                .padding(.horizontal, 32)
+                                .padding(.vertical, 12)
+                                .background(Color.red)
+                                .foregroundColor(.white)
+                                .cornerRadius(8)
+                        }
+                    }
+                }
+            )
+    }
 }
 
 // MARK: - Supporting Views
@@ -216,6 +411,7 @@ struct GridTileView: View {
     let isPath: Bool
     let isOccupied: Bool
     let isSelected: Bool
+    let isPlaceable: Bool
     let cellSize: CGFloat
     
     var body: some View {
@@ -238,6 +434,8 @@ struct GridTileView: View {
             return Color.gray.opacity(0.3)
         } else if isSelected {
             return Color.blue.opacity(0.3)
+        } else if isPlaceable {
+            return Color.gray.opacity(0.2) // Gray surrounding when placing towers
         } else {
             return Color.green.opacity(0.2)
         }
@@ -260,70 +458,29 @@ struct PathView: View {
     }
 }
 
-struct TowerSelectionButton: View {
-    let towerType: TowerType
-    let isSelected: Bool
-    let canAfford: Bool
-    let action: () -> Void
-    
+struct GridPattern: View {
     var body: some View {
-        Button(action: action) {
-            VStack(spacing: 4) {
-                // Tower icon
-                RoundedRectangle(cornerRadius: 4)
-                    .fill(towerType.color)
-                    .frame(width: 24, height: 24)
-                    .overlay(
-                        Text(towerType.displayName.prefix(1))
-                            .font(.caption)
-                            .fontWeight(.bold)
-                            .foregroundColor(.white)
-                    )
-                
-                Text(towerType.displayName)
-                    .font(.caption2)
-                    .fontWeight(.semibold)
-                
-                HStack(spacing: 2) {
-                    Image(systemName: "dollarsign.circle.fill")
-                        .font(.caption2)
-                        .foregroundColor(.yellow)
-                    Text("\(towerType.cost)")
-                        .font(.caption2)
-                        .fontWeight(.medium)
-                }
-            }
-            .padding(8)
-            .frame(minWidth: 70)
-            .background(backgroundcolor)
-            .cornerRadius(8)
-            .overlay(
-                RoundedRectangle(cornerRadius: 8)
-                    .stroke(borderColor, lineWidth: isSelected ? 2 : 1)
+        Canvas { context, size in
+            let cellSize: CGFloat = 40
+            let rows = Int(size.height / cellSize)
+            let cols = Int(size.width / cellSize)
+            
+            context.stroke(
+                Path { path in
+                    for i in 0...cols {
+                        let x = CGFloat(i) * cellSize
+                        path.move(to: CGPoint(x: x, y: 0))
+                        path.addLine(to: CGPoint(x: x, y: size.height))
+                    }
+                    for i in 0...rows {
+                        let y = CGFloat(i) * cellSize
+                        path.move(to: CGPoint(x: 0, y: y))
+                        path.addLine(to: CGPoint(x: size.width, y: y))
+                    }
+                },
+                with: .color(Color(red: 0.92, green: 0.9, blue: 0.84).opacity(0.1)), // #ebe6d6 with opacity
+                lineWidth: 2
             )
-            .scaleEffect(isSelected ? 1.05 : 1.0)
-            .animation(.easeInOut(duration: 0.1), value: isSelected)
-        }
-        .disabled(!canAfford)
-    }
-    
-    private var backgroundcolor: Color {
-        if !canAfford {
-            return Color.gray.opacity(0.3)
-        } else if isSelected {
-            return Color.blue.opacity(0.2)
-        } else {
-            return Color.white
-        }
-    }
-    
-    private var borderColor: Color {
-        if !canAfford {
-            return Color.gray
-        } else if isSelected {
-            return Color.blue
-        } else {
-            return Color.black.opacity(0.2)
         }
     }
 }

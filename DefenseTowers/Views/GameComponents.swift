@@ -13,14 +13,12 @@ struct EnemyView: View {
     
     var body: some View {
         ZStack {
-            // Main enemy body
+            // Main enemy body matching Figma specs
             Circle()
                 .fill(enemy.type.color)
-                .frame(width: enemy.type.size, height: enemy.type.size)
-                .overlay(
-                    Circle()
-                        .stroke(Color.black.opacity(0.3), lineWidth: 1)
-                )
+                .frame(width: enemyFrameSize, height: enemyFrameSize)
+                .background(Color(red: 0.9, green: 0.9, blue: 0.85))
+                .shadow(color: .black.opacity(0.25), radius: 2, x: 0, y: 4)
             
             // Health bar
             if enemy.healthPercentage < 1.0 {
@@ -54,6 +52,14 @@ struct EnemyView: View {
         .position(enemy.position)
     }
     
+    private var enemyFrameSize: CGFloat {
+        // Use Figma specs for different enemy types
+        switch enemy.type {
+        case .boss: return 37.35303 // Special size for boss from Figma
+        default: return 34.95898 // Standard size from Figma
+        }
+    }
+    
     private var enemyTypeIcon: String {
         switch enemy.type {
         case .basic: return "●"
@@ -69,54 +75,37 @@ struct EnemyView: View {
 struct TowerView: View {
     @ObservedObject var tower: Tower
     @EnvironmentObject var gameState: GameState
-    @State private var showUpgradeMenu = false
     
     var body: some View {
         ZStack {
-            // Tower base
-            RoundedRectangle(cornerRadius: 6)
-                .fill(tower.type.color)
-                .frame(width: 32, height: 32)
-                .overlay(
-                    RoundedRectangle(cornerRadius: 6)
-                        .stroke(Color.black.opacity(0.4), lineWidth: 2)
-                )
-                .overlay(
-                    Text(towerIcon)
-                        .font(.system(size: 16))
-                        .foregroundColor(.white)
-                        .fontWeight(.bold)
-                )
+            // Tower base matching Figma specs
+            Image(systemName: towerIcon)
+                .frame(width: 34.95898, height: 34.95898)
+                .background(Color(red: 0.2, green: 0.27, blue: 0.35))
+                .foregroundColor(Color(red: 0.92, green: 0.9, blue: 0.84))
+                .font(.system(size: 16, weight: .bold))
+                .shadow(color: .black.opacity(0.25), radius: 2, x: 0, y: 4)
             
             // Upgrade indicators
             upgradeIndicators
             
             // Range indicator (when selected)
-            if showUpgradeMenu {
+            if gameState.selectedTower?.id == tower.id {
                 Circle()
                     .stroke(Color.blue.opacity(0.3), style: StrokeStyle(lineWidth: 2, dash: [5, 5]))
                     .frame(width: tower.range * 2, height: tower.range * 2)
             }
-            
-            // Upgrade menu
-            if showUpgradeMenu {
-                upgradeMenu
-            }
         }
         .position(tower.position)
-        .onTapGesture {
-            showUpgradeMenu.toggle()
-        }
-        .onTapGesture(count: 2) {
-            showUpgradeMenu = false
-        }
     }
     
     private var towerIcon: String {
         switch tower.type {
-        case .basic: return "⚡"
-        case .sniper: return "🎯"
-        case .aoe: return "💥"
+        case .peace: return "peacesign"
+        case .tree: return "tree"
+        case .wave: return "swirl.circle.righthalf.filled"
+        case .sun: return "sun.max"
+        case .moon: return "moon.haze"
         }
     }
     
@@ -146,51 +135,6 @@ struct TowerView: View {
         }
     }
     
-    private var upgradeMenu: some View {
-        VStack(spacing: 4) {
-            ForEach(availableUpgrades, id: \.self) { upgrade in
-                upgradeButton(for: upgrade)
-            }
-        }
-        .padding(8)
-        .background(Color.white.opacity(0.95))
-        .cornerRadius(8)
-        .shadow(radius: 4)
-        .position(x: tower.position.x, y: tower.position.y - 60)
-    }
-    
-    private var availableUpgrades: [UpgradeType] {
-        UpgradeType.allCases.filter { tower.canUpgrade($0) }
-    }
-    
-    private func upgradeButton(for upgrade: UpgradeType) -> some View {
-        Button(action: {
-            let cost = tower.getUpgradeCost(upgrade: upgrade)
-            if gameState.coins >= cost {
-                tower.applyUpgrade(upgrade)
-                gameState.coins -= cost
-            }
-        }) {
-            HStack(spacing: 4) {
-                Text(upgrade.displayName)
-                    .font(.caption2)
-                    .fontWeight(.medium)
-                
-                HStack(spacing: 2) {
-                    Image(systemName: "dollarsign.circle.fill")
-                        .font(.caption2)
-                        .foregroundColor(.yellow)
-                    Text("\(tower.getUpgradeCost(upgrade: upgrade))")
-                        .font(.caption2)
-                }
-            }
-            .padding(.horizontal, 8)
-            .padding(.vertical, 4)
-            .background(gameState.coins >= tower.getUpgradeCost(upgrade: upgrade) ? Color.blue.opacity(0.1) : Color.gray.opacity(0.1))
-            .cornerRadius(4)
-        }
-        .disabled(gameState.coins < tower.getUpgradeCost(upgrade: upgrade))
-    }
 }
 
 // MARK: - Projectile View
@@ -211,17 +155,21 @@ struct ProjectileView: View {
     
     private var projectileColor: Color {
         switch projectile.towerType {
-        case .basic: return .cyan
-        case .sniper: return projectile.pierces ? .purple : .indigo
-        case .aoe: return .orange
+        case .peace: return .cyan
+        case .tree: return .green
+        case .wave: return .blue
+        case .sun: return projectile.pierces ? .orange : .yellow
+        case .moon: return .purple
         }
     }
     
     private var projectileSize: CGFloat {
         switch projectile.towerType {
-        case .basic: return 6
-        case .sniper: return projectile.pierces ? 8 : 5
-        case .aoe: return 7
+        case .peace: return 6
+        case .tree: return 5
+        case .wave: return 6
+        case .sun: return projectile.pierces ? 8 : 7
+        case .moon: return 7
         }
     }
 }

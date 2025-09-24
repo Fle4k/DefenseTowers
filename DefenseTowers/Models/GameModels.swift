@@ -7,6 +7,15 @@
 
 import SwiftUI
 import Combine
+import UIKit
+
+// MARK: - Game State Enum
+enum GameStateType {
+    case notStarted
+    case playing
+    case paused
+    case gameOver
+}
 
 // MARK: - Core Game State
 class GameState: ObservableObject {
@@ -19,6 +28,10 @@ class GameState: ObservableObject {
     @Published var blasts: [AoEBlast] = []
     @Published var gameOver: Bool = false
     @Published var score: Int = 0
+    @Published var enemiesEscaped: Int = 0
+    @Published var gameState: GameStateType = .notStarted
+    @Published var showPauseOverlay: Bool = false
+    @Published var selectedTower: Tower? = nil
     
     var waveManager: WaveManager!
     var timer: AnyCancellable?
@@ -28,6 +41,7 @@ class GameState: ObservableObject {
     }
     
     func startGameLoop() {
+        gameState = .playing
         timer = Timer.publish(every: 0.016, on: .main, in: .common)
             .autoconnect()
             .sink { [weak self] _ in
@@ -40,6 +54,7 @@ class GameState: ObservableObject {
     }
     
     func resetGame() {
+        stopGameLoop()
         coins = 100
         health = 20
         currentWave = 0
@@ -49,20 +64,51 @@ class GameState: ObservableObject {
         blasts.removeAll()
         gameOver = false
         score = 0
+        enemiesEscaped = 0
+        gameState = .notStarted
+        showPauseOverlay = false
+        selectedTower = nil
         waveManager = WaveManager(gameState: self)
     }
     
+    func pauseGame() {
+        gameState = .paused
+        showPauseOverlay = true
+        timer?.cancel()
+        waveManager.stopCurrentWave()
+    }
+    
+    func resumeGame() {
+        gameState = .playing
+        showPauseOverlay = false
+        startGameLoop()
+    }
+    
+    func handleAppDidEnterBackground() {
+        if !gameOver && gameState == .playing {
+            pauseGame()
+        }
+    }
+    
+    private func triggerHapticFeedback() {
+        let impactFeedback = UIImpactFeedbackGenerator(style: .medium)
+        impactFeedback.impactOccurred()
+    }
+    
     private func update() {
-        guard !gameOver else { return }
+        guard !gameOver && gameState == .playing else { return }
         
         // Move enemies
         for i in enemies.indices.reversed() {
             enemies[i].move()
             if enemies[i].reachedGoal {
                 health -= enemies[i].type.damage
+                enemiesEscaped += 1
                 enemies[i].isAlive = false
+                triggerHapticFeedback()
                 if health <= 0 {
                     gameOver = true
+                    gameState = .gameOver
                 }
             }
         }
@@ -211,61 +257,75 @@ struct Enemy: Identifiable {
 
 // MARK: - Tower Types
 enum TowerType: CaseIterable {
-    case basic, sniper, aoe
+    case peace, tree, wave, sun, moon
     
     var displayName: String {
         switch self {
-        case .basic: return "Basic"
-        case .sniper: return "Sniper"
-        case .aoe: return "AoE"
+        case .peace: return "Peace"
+        case .tree: return "Tree"
+        case .wave: return "Wave"
+        case .sun: return "Sun"
+        case .moon: return "Moon"
         }
     }
     
     var cost: Int {
         switch self {
-        case .basic: return 50
-        case .sniper: return 100
-        case .aoe: return 120
+        case .peace: return 50
+        case .tree: return 80
+        case .wave: return 100
+        case .sun: return 120
+        case .moon: return 150
         }
     }
     
     var range: CGFloat {
         switch self {
-        case .basic: return 80
-        case .sniper: return 140
-        case .aoe: return 60
+        case .peace: return 80
+        case .tree: return 70
+        case .wave: return 90
+        case .sun: return 140
+        case .moon: return 60
         }
     }
     
     var damage: Int {
         switch self {
-        case .basic: return 15
-        case .sniper: return 35
-        case .aoe: return 12
+        case .peace: return 15
+        case .tree: return 12
+        case .wave: return 18
+        case .sun: return 35
+        case .moon: return 25
         }
     }
     
     var fireRate: TimeInterval {
         switch self {
-        case .basic: return 0.6
-        case .sniper: return 1.2
-        case .aoe: return 0.8
+        case .peace: return 0.6
+        case .tree: return 0.4
+        case .wave: return 0.8
+        case .sun: return 1.2
+        case .moon: return 0.5
         }
     }
     
     var color: Color {
         switch self {
-        case .basic: return .blue
-        case .sniper: return .purple
-        case .aoe: return .orange
+        case .peace: return .blue
+        case .tree: return .green
+        case .wave: return .cyan
+        case .sun: return .yellow
+        case .moon: return .purple
         }
     }
     
     var projectileSpeed: CGFloat {
         switch self {
-        case .basic: return 6
-        case .sniper: return 10
-        case .aoe: return 4
+        case .peace: return 6
+        case .tree: return 5
+        case .wave: return 7
+        case .sun: return 10
+        case .moon: return 8
         }
     }
 }
@@ -299,8 +359,8 @@ class Tower: Identifiable, ObservableObject {
         guard now - lastFireTime > currentFireRate else { return }
         
         switch type {
-        case .aoe:
-            // AoE tower damages all enemies in range
+        case .moon:
+            // Moon tower damages all enemies in range (AoE)
             var hitAny = false
             for i in gameState.enemies.indices {
                 let enemy = gameState.enemies[i]
@@ -340,7 +400,7 @@ class Tower: Identifiable, ObservableObject {
                     targetId: target.id,
                     speed: type.projectileSpeed,
                     damage: damage,
-                    pierces: canPierce && type == .sniper,
+                    pierces: canPierce && type == .sun,
                     towerType: type
                 )
                 gameState.projectiles.append(projectile)
@@ -359,9 +419,9 @@ class Tower: Identifiable, ObservableObject {
     
     func canUpgrade(_ upgrade: UpgradeType) -> Bool {
         switch upgrade {
-        case .pierce: return type == .sniper && !canPierce
+        case .pierce: return type == .sun && !canPierce
         case .range: return !hasExtremeRange
-        case .fastFire: return type == .basic && !hasFastFire
+        case .fastFire: return type == .tree && !hasFastFire
         }
     }
     
